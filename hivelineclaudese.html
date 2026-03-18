@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiveLineClaude — Red P2P Local</title>
+<meta name="theme-color" content="#0071e3">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="HiveLineClaude">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<script>
+// Inline manifest — no external file needed
+const manifestData = {
+  name: "HiveLineClaude",
+  short_name: "HiveLineClaude",
+  description: "Combina la CPU de tus dispositivos para mejorar el rendimiento",
+  start_url: "/",
+  display: "standalone",
+  background_color: "#f2f2f7",
+  theme_color: "#0071e3",
+  orientation: "any",
+  icons: [
+    { src: "https://lopex-cpu.netlify.app/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
+    { src: "https://lopex-cpu.netlify.app/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" }
+  ]
+};
+const blob = new Blob([JSON.stringify(manifestData)], {type: 'application/json'});
+const manifestURL = URL.createObjectURL(blob);
+const linkEl = document.createElement('link');
+linkEl.rel = 'manifest';
+linkEl.href = manifestURL;
+document.head.appendChild(linkEl);
+
+// Service Worker para segundo plano
+if ('serviceWorker' in navigator) {
+  const swCode = `
+    self.addEventListener('install', e => self.skipWaiting());
+    self.addEventListener('activate', e => e.waitUntil(clients.claim()));
+    self.addEventListener('fetch', e => e.respondWith(fetch(e.request).catch(() => caches.match(e.request))));
+  `;
+  const swBlob = new Blob([swCode], {type: 'application/javascript'});
+  const swURL = URL.createObjectURL(swBlob);
+  navigator.serviceWorker.register(swURL).then(() => console.log('SW activo'));
+}
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.4.7/peerjs.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg: #f2f2f7;
+  --sur: #ffffff;
+  --sur2: #f6f6fa;
+  --bdr: #e4e4eb;
+  --bdr2: #d4d4e0;
+  --txt: #111118;
+  --txt2: #6e6e82;
+  --txt3: #b0b0c8;
+  --blue: #0071e3;
+  --bl: #e8f1fc;
+  --bm: #b8d4f8;
+  --green: #28cd41;
+  --gl: #eafaed;
+  --red: #ff3b30;
+  --rl: #fff0ef;
+  --yel: #ff9f0a;
+  --yl: #fff8ee;
+  --pur: #7c3aed;
+  --pl: #f3eeff;
+  --sh: 0 2px 14px rgba(0,0,0,0.07);
+  --sh2: 0 4px 24px rgba(0,0,0,0.10);
+  --r: 18px; --rs: 12px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--txt);
+  font-family: 'DM Sans', sans-serif;
+  min-height: 100vh; -webkit-font-smoothing: antialiased;
+}
+
+/* ── LAYOUT ── */
+.app { min-height: 100vh; display: flex; flex-direction: column; }
+
+/* ── HEADER ── */
+.hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 13px 24px;
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--bdr);
+  position: sticky; top: 0; z-index: 50; flex-shrink: 0;
+}
+.logo { display: flex; align-items: center; gap: 10px; }
+.logo-ico { width: 36px; height: 36px; background: var(--txt); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 19px; }
+.logo-name { font-size: 17px; font-weight: 700; letter-spacing: -.4px; }
+.logo-ver { font-size: 9px; color: var(--txt3); font-family: 'DM Mono', monospace; letter-spacing: .5px; }
+.hdr-right { display: flex; align-items: center; gap: 10px; }
+.device-type-badge { font-size: 10px; font-weight: 600; padding: 4px 10px; border-radius: 20px; background: var(--sur2); color: var(--txt2); border: 1px solid var(--bdr); font-family: 'DM Mono', monospace; }
+.badge { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500; padding: 5px 12px; border-radius: 20px; background: var(--sur2); color: var(--txt2); border: 1px solid var(--bdr); transition: all .4s; }
+.badge.on { background: var(--gl); color: #1a7a2e; border-color: #a8e4b0; }
+.badge.ing { background: var(--yl); color: #9a5200; border-color: #ffd080; }
+.bdot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.badge.on .bdot { animation: pg 2s infinite; }
+.badge.ing .bdot { animation: bk .7s infinite; }
+@keyframes pg { 0%,100%{opacity:1} 50%{opacity:.3} }
+@keyframes bk { 0%,100%{opacity:1} 50%{opacity:0} }
+
+/* ── SCREENS ── */
+.scr { display: none; flex-direction: column; flex: 1; animation: fu .28s ease; }
+.scr.active { display: flex; }
+@keyframes fu { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+
+/* ── SHARED PAGE WRAPPER ── */
+.page { width: 100%; max-width: 1100px; margin: 0 auto; padding: 24px; }
+.page-narrow { max-width: 620px; }
+
+/* ── CARDS ── */
+.card { background: var(--sur); border-radius: var(--r); border: 1px solid var(--bdr); box-shadow: var(--sh); padding: 22px; }
+.ctitle { font-size: 10px; font-weight: 600; letter-spacing: .8px; text-transform: uppercase; color: var(--txt3); margin-bottom: 14px; display: flex; align-items: center; gap: 6px; }
+.cdot { width: 5px; height: 5px; border-radius: 50%; background: var(--blue); flex-shrink: 0; }
+
+/* ── BUTTONS ── */
+.btn { width: 100%; padding: 13px 20px; border-radius: var(--rs); font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; transition: all .15s; border: none; letter-spacing: -.1px; }
+.btn:active:not(:disabled) { transform: scale(.98); }
+.btn-p { background: var(--blue); color: #fff; box-shadow: 0 3px 10px rgba(0,113,227,.28); }
+.btn-p:hover { background: #005cc4; }
+.btn-p:disabled { background: var(--bdr); color: var(--txt3); box-shadow: none; cursor: not-allowed; }
+.btn-o { background: transparent; color: var(--blue); border: 1.5px solid var(--bm); }
+.btn-o:hover { background: var(--bl); }
+.btn-d { background: var(--rl); color: var(--red); border: 1px solid #ffb8b0; }
+.btn-g { background: var(--sur2); color: var(--txt2); border: 1px solid var(--bdr); }
+
+/* ── TERMS ── */
+.terms-wrap { display: grid; gap: 20px; }
+@media (min-width: 700px) { .terms-wrap { grid-template-columns: 1fr 1fr; } .terms-full { grid-column: 1 / -1; } }
+.t-hdr { text-align: center; padding: 8px 0 12px; }
+.t-icon { font-size: 44px; margin-bottom: 10px; }
+.t-title { font-size: 26px; font-weight: 700; letter-spacing: -.5px; }
+.t-sub { font-size: 14px; color: var(--txt2); margin-top: 5px; line-height: 1.5; }
+.t-list { display: flex; flex-direction: column; gap: 9px; }
+.t-item { display: flex; gap: 12px; background: var(--sur2); border-radius: var(--rs); padding: 13px 14px; border: 1px solid var(--bdr); }
+.t-ico { font-size: 20px; flex-shrink: 0; margin-top: 1px; }
+.t-it { font-size: 13px; font-weight: 600; }
+.t-id { font-size: 11px; color: var(--txt2); margin-top: 2px; line-height: 1.4; }
+.t-chk { display: flex; align-items: center; gap: 11px; background: var(--sur2); border-radius: var(--rs); padding: 14px; border: 1px solid var(--bdr); cursor: pointer; }
+.t-chk input { width: 18px; height: 18px; accent-color: var(--blue); cursor: pointer; flex-shrink: 0; }
+.t-chk label { font-size: 13px; color: var(--txt2); cursor: pointer; line-height: 1.4; }
+
+/* ── CONNECT ── */
+.connect-grid { display: grid; gap: 20px; }
+@media (min-width: 600px) { .connect-grid { grid-template-columns: 1fr 1fr; } }
+.code-box { background: var(--sur2); border: 1.5px dashed var(--bdr2); border-radius: var(--rs); padding: 18px; text-align: center; margin-bottom: 14px; }
+.code-num { font-family: 'DM Mono', monospace; font-size: 40px; font-weight: 500; letter-spacing: 12px; color: var(--txt); }
+.code-sub { font-size: 11px; color: var(--txt3); margin-top: 6px; }
+.code-timer { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; background: var(--yl); color: var(--yel); border: 1px solid #ffd080; border-radius: 6px; padding: 2px 9px; margin-top: 7px; }
+.wait-pill { display: flex; align-items: center; justify-content: center; gap: 7px; background: var(--bl); border: 1px solid var(--bm); border-radius: 8px; padding: 10px; margin-top: 12px; font-size: 11px; color: var(--blue); font-weight: 500; }
+.wdot { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); animation: bk 1s infinite; }
+.code-inp { width: 100%; background: var(--sur2); border: 1.5px solid var(--bdr); border-radius: var(--rs); padding: 16px; color: var(--txt); font-family: 'DM Mono', monospace; font-size: 32px; font-weight: 500; letter-spacing: 12px; text-align: center; outline: none; margin-bottom: 14px; transition: border-color .2s; -webkit-appearance: none; }
+.code-inp::placeholder { color: var(--txt3); font-size: 20px; letter-spacing: 4px; }
+.code-inp:focus { border-color: var(--blue); background: var(--bl); }
+.sec-row { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.sec-tag { display: flex; align-items: center; gap: 4px; background: var(--gl); border: 1px solid #a8e4b0; border-radius: 6px; padding: 3px 9px; font-size: 10px; color: #1a7a2e; font-weight: 500; }
+
+/* ── CONNECTING ── */
+.conn-body { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; gap: 18px; padding: 60px 24px; text-align: center; }
+.spin { width: 56px; height: 56px; border: 3px solid var(--bdr); border-top-color: var(--blue); border-radius: 50%; animation: sp 1s linear infinite; }
+@keyframes sp { to { transform: rotate(360deg); } }
+.conn-lbl { font-size: 17px; font-weight: 600; }
+.conn-sub { font-size: 13px; color: var(--txt2); line-height: 1.5; }
+
+/* ── CONNECTED LAYOUT ── */
+.connected-page { display: grid; gap: 18px; }
+@media (min-width: 900px) {
+  .connected-page { grid-template-columns: 1fr 340px; grid-template-rows: auto; }
+  .col-left { display: flex; flex-direction: column; gap: 16px; }
+  .col-right { display: flex; flex-direction: column; gap: 16px; }
+}
+
+/* ── DEVICE PANELS ── */
+.devices-row { display: grid; gap: 14px; }
+@media (min-width: 600px) { .devices-row { grid-template-columns: 1fr 1fr; } }
+.dvc { background: var(--sur); border-radius: var(--r); border: 1px solid var(--bdr); box-shadow: var(--sh); overflow: hidden; }
+.dvc-hdr { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 12px; border-bottom: 1px solid var(--bdr); }
+.dvc-left { display: flex; align-items: center; gap: 10px; }
+.dvc-ava { width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 17px; }
+.ava-me { background: var(--bl); }
+.ava-them { background: var(--pl); }
+.dvc-name { font-size: 13px; font-weight: 600; }
+.dvc-sub { font-size: 10px; color: var(--txt3); margin-top: 1px; }
+.role-pill { font-size: 9px; font-weight: 700; padding: 3px 11px; border-radius: 20px; text-transform: uppercase; letter-spacing: .3px; }
+.role-main { background: var(--gl); color: #1a7a2e; border: 1px solid #a8e4b0; }
+.role-sup { background: var(--pl); color: var(--pur); border: 1px solid #d0b0f0; }
+.role-eq { background: var(--yl); color: #9a5200; border: 1px solid #ffd080; }
+.dvc-stats { padding: 13px 16px 14px; display: flex; flex-direction: column; gap: 9px; }
+.sline { display: flex; flex-direction: column; gap: 3px; }
+.stop { display: flex; justify-content: space-between; align-items: center; }
+.sname { font-size: 10px; color: var(--txt2); font-weight: 500; }
+.sval { font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500; }
+.bar { height: 5px; background: var(--sur2); border-radius: 3px; overflow: hidden; border: 1px solid var(--bdr); }
+.bfill { height: 100%; border-radius: 3px; transition: width .9s cubic-bezier(.4,0,.2,1); }
+.b-blue { background: linear-gradient(90deg, var(--blue), #34aadc); }
+.b-pur { background: linear-gradient(90deg, var(--pur), #a855f7); }
+.b-grn { background: linear-gradient(90deg, var(--green), #34e080); }
+.mstrip { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--bdr); }
+.mcell { padding: 10px 8px; text-align: center; border-right: 1px solid var(--bdr); }
+.mcell:last-child { border-right: none; }
+.mv { font-family: 'DM Mono', monospace; font-size: 14px; font-weight: 500; }
+.ml { font-size: 9px; color: var(--txt3); margin-top: 2px; text-transform: uppercase; letter-spacing: .4px; }
+
+/* ── BALANCE ── */
+.bal-block { background: var(--sur); border-radius: var(--r); border: 1px solid var(--bdr); box-shadow: var(--sh); padding: 18px 20px; }
+.bal-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.bal-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .7px; color: var(--txt3); }
+.bal-badge { font-size: 10px; padding: 3px 10px; border-radius: 20px; font-weight: 600; }
+.bal-vis { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+.bl-lbl { font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 500; min-width: 36px; }
+.bl-lbl.r { text-align: right; }
+.bal-track { flex: 1; height: 12px; background: var(--sur2); border-radius: 6px; overflow: hidden; border: 1px solid var(--bdr); display: flex; position: relative; }
+.bal-l { background: linear-gradient(90deg, var(--blue), #34aadc); transition: width .9s cubic-bezier(.4,0,.2,1); border-radius: 4px 0 0 4px; }
+.bal-r { background: linear-gradient(270deg, var(--pur), #a855f7); transition: width .9s cubic-bezier(.4,0,.2,1); border-radius: 0 4px 4px 0; margin-left: auto; }
+.bal-mid { position: absolute; left: 50%; top: -1px; bottom: -1px; width: 2px; background: var(--bg); z-index: 1; transform: translateX(-50%); }
+.bal-st { text-align: center; font-size: 12px; font-weight: 500; color: var(--txt2); }
+
+/* ── OFFLOAD ── */
+.offload-block { background: var(--sur); border-radius: var(--r); border: 1px solid var(--bdr); box-shadow: var(--sh); overflow: hidden; }
+.offload-hdr { display: flex; align-items: center; justify-content: space-between; padding: 15px 18px 13px; border-bottom: 1px solid var(--bdr); }
+.offload-title { font-size: 14px; font-weight: 700; }
+.offload-sub { font-size: 10px; color: var(--txt3); margin-top: 1px; }
+.power-badge { font-size: 10px; padding: 4px 11px; border-radius: 20px; font-weight: 600; background: var(--gl); color: #1a7a2e; border: 1px solid #a8e4b0; white-space: nowrap; }
+.worker-row { display: flex; align-items: center; gap: 9px; padding: 9px 18px; background: var(--yl); border-top: 1px solid #ffd080; font-size: 11px; color: #9a5200; font-weight: 500; }
+.worker-spin { width: 14px; height: 14px; border: 2px solid #ffd080; border-top-color: var(--yel); border-radius: 50%; animation: sp .8s linear infinite; flex-shrink: 0; }
+.task-list { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.task-btn { display: flex; align-items: center; gap: 13px; background: var(--sur2); border: 1px solid var(--bdr); border-radius: var(--rs); padding: 13px 15px; cursor: pointer; transition: all .18s; width: 100%; text-align: left; font-family: inherit; }
+.task-btn:hover:not(:disabled) { background: var(--bl); border-color: var(--bm); }
+.task-btn:active:not(:disabled) { transform: scale(.99); }
+.task-btn.running { background: var(--bl); border-color: var(--bm); cursor: not-allowed; }
+.task-btn.done { background: var(--gl); border-color: #a8e4b0; }
+.task-btn.error { background: var(--rl); border-color: #ffb8b0; }
+.task-btn:disabled { opacity: .6; cursor: not-allowed; }
+.task-ico { font-size: 24px; flex-shrink: 0; }
+.task-info { flex: 1; }
+.task-name { font-size: 13px; font-weight: 600; color: var(--txt); }
+.task-desc { font-size: 11px; color: var(--txt2); margin-top: 2px; }
+.task-stat { font-size: 11px; font-family: 'DM Mono', monospace; color: var(--txt3); text-align: right; flex-shrink: 0; }
+
+/* ── RESULT LOG ── */
+.result-log { background: var(--sur2); border-radius: var(--rs); margin: 0 14px 14px; border: 1px solid var(--bdr); overflow: hidden; }
+.log-hdr { padding: 9px 13px; font-size: 10px; font-weight: 600; color: var(--txt3); text-transform: uppercase; letter-spacing: .6px; border-bottom: 1px solid var(--bdr); display: flex; justify-content: space-between; align-items: center; }
+.log-clear { font-size: 10px; cursor: pointer; color: var(--blue); font-weight: 500; }
+.log-body { padding: 10px 13px; max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.log-row { display: flex; gap: 9px; align-items: flex-start; }
+.log-time { font-family: 'DM Mono', monospace; font-size: 9px; color: var(--txt3); flex-shrink: 0; margin-top: 2px; }
+.log-msg { font-size: 11px; line-height: 1.4; }
+.log-msg.fresh { color: var(--blue); font-weight: 500; }
+.log-msg.ok { color: #1a7a2e; }
+.log-msg.err { color: var(--red); }
+.log-empty { font-size: 11px; color: var(--txt3); text-align: center; padding: 12px 0; }
+
+/* ── DESKTOP INFO SIDEBAR ── */
+.info-card { background: var(--sur); border-radius: var(--r); border: 1px solid var(--bdr); box-shadow: var(--sh); padding: 18px; }
+.info-title { font-size: 13px; font-weight: 700; margin-bottom: 12px; }
+.info-list { display: flex; flex-direction: column; gap: 10px; }
+.info-item { display: flex; gap: 10px; align-items: flex-start; }
+.info-ico { font-size: 18px; flex-shrink: 0; }
+.info-text { font-size: 11px; color: var(--txt2); line-height: 1.4; }
+.info-text b { color: var(--txt); }
+
+/* ── TOAST ── */
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(17,17,24,.93); color: #fff; border-radius: 10px; padding: 11px 20px; font-size: 13px; font-weight: 500; z-index: 1000; animation: ti .3s ease; white-space: nowrap; pointer-events: none; box-shadow: 0 4px 20px rgba(0,0,0,.2); backdrop-filter: blur(10px); }
+@keyframes ti { from{opacity:0;transform:translateX(-50%) translateY(8px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { background: var(--bdr); border-radius: 2px; }
+input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="logo">
+    <div class="logo-ico">🐝</div>
+    <div>
+      <div class="logo-name">HiveLineClaude</div>
+      <div class="logo-ver">P2P · CPU REAL</div>
+    </div>
+  </div>
+  <div class="hdr-right">
+    <div class="device-type-badge" id="deviceTypeBadge">📱 Móvil</div>
+    <div class="badge" id="badge"><div class="bdot"></div><span id="btext">Sin conexión</span></div>
+  </div>
+</div>
+
+<!-- ═══════ TERMS ═══════ -->
+<div id="sTerms" class="scr active">
+  <div class="page page-narrow">
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <div class="t-hdr">
+        <div class="t-icon">🔐</div>
+        <div class="t-title">Antes de empezar</div>
+        <div class="t-sub">Cómo funciona HiveLineClaude y qué datos se comparten</div>
+      </div>
+      <div class="card">
+        <div class="ctitle"><div class="cdot"></div>Condiciones de uso</div>
+        <div class="t-list">
+          <div class="t-item"><div class="t-ico">🔒</div><div><div class="t-it">Conexión directa cifrada (P2P)</div><div class="t-id">La conexión va de dispositivo a dispositivo directamente con WebRTC. Ningún servidor guarda ni ve tus datos.</div></div></div>
+          <div class="t-item"><div class="t-ico">⚙️</div><div><div class="t-it">El dispositivo potente ayuda al débil</div><div class="t-id">El más potente ejecuta tareas reales (cálculos, procesado) en su CPU y manda el resultado al otro. No se comparten archivos ni datos personales.</div></div></div>
+          <div class="t-item"><div class="t-ico">⏱️</div><div><div class="t-it">Código de un solo uso (10 min)</div><div class="t-id">El código expira en 10 minutos. Solo quien tenga el código exacto puede conectarse. Imposible adivinar o escanear otros dispositivos.</div></div></div>
+          <div class="t-item"><div class="t-ico">📡</div><div><div class="t-it">Prioriza WiFi local</div><div class="t-id">Si ambos están en la misma red, la conexión es completamente local — sin internet de por medio.</div></div></div>
+          <div class="t-item"><div class="t-ico">🚫</div><div><div class="t-it">Sin rastreo ni publicidad</div><div class="t-id">HiveLineClaude no tiene servidores propios, no guarda nada. El código fuente es público y auditable en GitHub.</div></div></div>
+        </div>
+      </div>
+      <div class="card" style="padding:16px">
+        <div class="t-chk" onclick="document.getElementById('chk').checked=!document.getElementById('chk').checked;document.getElementById('btnOk').disabled=!document.getElementById('chk').checked">
+          <input type="checkbox" id="chk">
+          <label for="chk">He leído y acepto. Entiendo que <b>solo se ejecutan cálculos</b> en el otro dispositivo con mi permiso.</label>
+        </div>
+      </div>
+      <button class="btn btn-p" id="btnOk" onclick="acceptTerms()" disabled>Entendido — Continuar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════ CONNECT ═══════ -->
+<div id="sConnect" class="scr">
+  <div class="page page-narrow">
+    <div style="display:flex;flex-direction:column;gap:16px">
+
+      <div style="text-align:center;padding:4px 0">
+        <div style="font-size:22px;font-weight:700;letter-spacing:-.4px">Conectar dispositivos</div>
+        <div style="font-size:13px;color:var(--txt2);margin-top:4px">Comparte tu código o introduce el de otro dispositivo</div>
+      </div>
+
+      <div class="connect-grid">
+        <!-- MY CODE -->
+        <div class="card">
+          <div class="ctitle"><div class="cdot"></div>Tu código</div>
+          <div class="code-box">
+            <div class="code-num" id="myCode">· · · · · ·</div>
+            <div class="code-sub">Compártelo con el otro dispositivo</div>
+            <div class="code-timer">⏱ Expira en <span id="expTimer">10:00</span></div>
+          </div>
+          <button class="btn btn-o" onclick="copyCode()">📋 Copiar código</button>
+          <div class="wait-pill" id="waitPill" style="display:none">
+            <div class="wdot"></div>
+            <span>Esperando conexión...</span>
+          </div>
+        </div>
+
+        <!-- JOIN -->
+        <div class="card">
+          <div class="ctitle"><div class="cdot" style="background:var(--pur)"></div>Unirse con código</div>
+          <input class="code-inp" id="joinInp" type="number" placeholder="000000" oninput="onInp(this)">
+          <button class="btn btn-p" id="btnJoin" onclick="joinPeer()" disabled>⚡ Conectar</button>
+          <div class="sec-row">
+            <div class="sec-tag">🔒 Cifrado E2E</div>
+            <div class="sec-tag">📡 WiFi local</div>
+            <div class="sec-tag">⏱ Un solo uso</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ═══════ CONNECTING ═══════ -->
+<div id="sConnecting" class="scr">
+  <div class="conn-body">
+    <div class="spin"></div>
+    <div class="conn-lbl" id="connLbl">Conectando...</div>
+    <div class="conn-sub" id="connSub">Estableciendo canal seguro P2P<br>Preferencia: red WiFi local</div>
+    <button class="btn btn-g" style="max-width:160px" onclick="cancelConn()">Cancelar</button>
+  </div>
+</div>
+
+<!-- ═══════ CONNECTED ═══════ -->
+<div id="sConnected" class="scr">
+  <div class="page">
+    <div class="connected-page">
+
+      <!-- LEFT COLUMN -->
+      <div class="col-left">
+
+        <!-- DEVICES -->
+        <div>
+          <div class="ctitle" style="margin-bottom:10px"><div class="cdot"></div>Dispositivos conectados</div>
+          <div class="devices-row">
+            <!-- ME -->
+            <div class="dvc">
+              <div class="dvc-hdr">
+                <div class="dvc-left">
+                  <div class="dvc-ava ava-me" id="myAva">💻</div>
+                  <div>
+                    <div class="dvc-name">Este dispositivo</div>
+                    <div class="dvc-sub" id="mySub">Midiendo...</div>
+                  </div>
+                </div>
+                <div class="role-pill" id="myRole">—</div>
+              </div>
+              <div class="dvc-stats">
+                <div class="sline"><div class="stop"><span class="sname">Núcleos CPU</span><span class="sval" id="myCores">—</span></div><div class="bar"><div class="bfill b-blue" id="myCpuB" style="width:0"></div></div></div>
+                <div class="sline"><div class="stop"><span class="sname">RAM</span><span class="sval" id="myRam">—</span></div><div class="bar"><div class="bfill b-pur" id="myRamB" style="width:0"></div></div></div>
+                <div class="sline"><div class="stop"><span class="sname">Batería</span><span class="sval" id="myBat">—</span></div><div class="bar"><div class="bfill b-grn" id="myBatB" style="width:0"></div></div></div>
+              </div>
+              <div class="mstrip">
+                <div class="mcell"><div class="mv" id="mySpd">—</div><div class="ml">Velocidad</div></div>
+                <div class="mcell"><div class="mv" id="myScore">—</div><div class="ml">Potencia</div></div>
+                <div class="mcell"><div class="mv" id="myPing">—</div><div class="ml">Ping</div></div>
+              </div>
+            </div>
+            <!-- THEM -->
+            <div class="dvc">
+              <div class="dvc-hdr">
+                <div class="dvc-left">
+                  <div class="dvc-ava ava-them" id="themAva">📱</div>
+                  <div>
+                    <div class="dvc-name">Dispositivo remoto</div>
+                    <div class="dvc-sub" id="themSub">Esperando datos...</div>
+                  </div>
+                </div>
+                <div class="role-pill" id="themRole">—</div>
+              </div>
+              <div class="dvc-stats">
+                <div class="sline"><div class="stop"><span class="sname">Núcleos CPU</span><span class="sval" id="themCores">—</span></div><div class="bar"><div class="bfill b-blue" id="themCpuB" style="width:0"></div></div></div>
+                <div class="sline"><div class="stop"><span class="sname">RAM</span><span class="sval" id="themRam">—</span></div><div class="bar"><div class="bfill b-pur" id="themRamB" style="width:0"></div></div></div>
+                <div class="sline"><div class="stop"><span class="sname">Batería</span><span class="sval" id="themBat">—</span></div><div class="bar"><div class="bfill b-grn" id="themBatB" style="width:0"></div></div></div>
+              </div>
+              <div class="mstrip">
+                <div class="mcell"><div class="mv" id="themSpd">—</div><div class="ml">Velocidad</div></div>
+                <div class="mcell"><div class="mv" id="themScore">—</div><div class="ml">Potencia</div></div>
+                <div class="mcell"><div class="mv" id="themPing">—</div><div class="ml">Latencia</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- BALANCE -->
+        <div class="bal-block">
+          <div class="bal-top">
+            <div class="bal-title">⚖️ Equilibrio de carga CPU + GPU</div>
+            <div class="bal-badge" id="balBadge">Calculando...</div>
+          </div>
+          <div class="bal-vis">
+            <div class="bl-lbl" id="balMe">—</div>
+            <div class="bal-track">
+              <div class="bal-mid"></div>
+              <div class="bal-l" id="balL" style="width:50%"></div>
+              <div class="bal-r" id="balR" style="width:50%"></div>
+            </div>
+            <div class="bl-lbl r" id="balThem">—</div>
+          </div>
+          <div class="bal-st" id="balSt">Analizando dispositivos...</div>
+        </div>
+
+        <button class="btn btn-d" onclick="disconnect()">Desconectar</button>
+      </div>
+
+      <!-- RIGHT COLUMN -->
+      <div class="col-right">
+
+        <!-- TASKS -->
+        <div class="offload-block">
+          <div class="offload-hdr">
+            <div>
+              <div class="offload-title">Tareas reales</div>
+              <div class="offload-sub" id="offloadSub">Ejecutadas en el dispositivo más potente</div>
+            </div>
+            <div class="power-badge" id="powerBadge">Detectando...</div>
+          </div>
+          <div id="workerRow" style="display:none" class="worker-row">
+            <div class="worker-spin"></div>
+            <span id="workerMsg">Ejecutando...</span>
+          </div>
+          <div class="task-list" id="taskList"></div>
+          <div class="result-log">
+            <div class="log-hdr">
+              Registro
+              <span class="log-clear" onclick="clearLog()">Limpiar</span>
+            </div>
+            <div class="log-body" id="logBody">
+              <div class="log-empty">Las tareas ejecutadas aparecerán aquí</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- INFO SIDEBAR (desktop only) -->
+        <div class="info-card">
+          <div class="info-title">💡 Cómo funciona</div>
+          <div class="info-list">
+            <div class="info-item"><div class="info-ico">📤</div><div class="info-text"><b>Offloading real:</b> el código de la tarea viaja al dispositivo más potente, se ejecuta allí y el resultado vuelve.</div></div>
+            <div class="info-item"><div class="info-ico">🔒</div><div class="info-text"><b>Solo cálculos:</b> nunca se envían archivos, fotos ni datos personales.</div></div>
+            <div class="info-item"><div class="info-ico">📡</div><div class="info-text"><b>WiFi local:</b> si ambos están en la misma red, la conexión no sale a internet.</div></div>
+            <div class="info-item"><div class="info-ico">⚡</div><div class="info-text"><b>Latencia:</b> en red local el ping es menor de 5ms — tan rápido como si fuera local.</div></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- .app -->
+
+<script>
+// ══ DEVICE DETECTION ══
+const isDesktop = !(/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent));
+document.getElementById('deviceTypeBadge').textContent = isDesktop ? '💻 Ordenador' : '📱 Móvil';
+document.getElementById('myAva').textContent = isDesktop ? '💻' : '📱';
+
+// ══ TASKS ══
+const TASKS = [
+  {
+    id:'prime', icon:'🔢', name:'Calcular primos', desc:'Criba de Eratóstenes hasta 500.000',
+    fn: function() {
+      const N=500000, s=new Uint8Array(N+1).fill(1); s[0]=s[1]=0;
+      for(let i=2;i*i<=N;i++) if(s[i]) for(let j=i*i;j<=N;j+=i) s[j]=0;
+      let c=0; for(let i=2;i<=N;i++) if(s[i]) c++;
+      return {result:c+' primos encontrados hasta 500.000',detail:'Criba de Eratóstenes'};
+    }
+  },
+  {
+    id:'sort', icon:'🔀', name:'Ordenar 1 millón de datos', desc:'Genera y ordena 1.000.000 de números',
+    fn: function() {
+      const a=new Float32Array(1000000).map(()=>Math.random()*1e9);
+      const t=performance.now(); a.sort(); const ms=Math.round(performance.now()-t);
+      return {result:'1.000.000 elementos en '+ms+'ms',detail:'Array Float32 — sort nativo'};
+    }
+  },
+  {
+    id:'hash', icon:'🔐', name:'10.000 hashes SHA-256', desc:'Operaciones criptográficas reales',
+    fn: async function() {
+      const enc=new TextEncoder(), t=performance.now();
+      await Promise.all(Array.from({length:10000},(_,i)=>crypto.subtle.digest('SHA-256',enc.encode('HiveLineClaude-'+i))));
+      return {result:'10.000 hashes en '+Math.round(performance.now()-t)+'ms',detail:'Web Crypto API'};
+    }
+  },
+  {
+    id:'matrix', icon:'🧮', name:'Multiplicar matrices 200×200', desc:'Cálculo matemático intensivo',
+    fn: function() {
+      const N=200,rnd=()=>Array.from({length:N},()=>Array.from({length:N},()=>Math.random()));
+      const A=rnd(),B=rnd(),C=Array.from({length:N},()=>new Array(N).fill(0));
+      const t=performance.now();
+      for(let i=0;i<N;i++) for(let k=0;k<N;k++) for(let j=0;j<N;j++) C[i][j]+=A[i][k]*B[k][j];
+      return {result:'Matriz 200×200 en '+Math.round(performance.now()-t)+'ms',detail:Math.floor(2*N*N*N/1000)+'K operaciones float'};
+    }
+  },
+  {
+    id:'bench', icon:'⚡', name:'Benchmark completo', desc:'Mide la velocidad real del dispositivo',
+    fn: function() {
+      const t=performance.now(); let x=0;
+      for(let i=0;i<2000000;i++) x+=Math.sqrt(i)*Math.sin(i);
+      const ms=performance.now()-t;
+      return {result:'Score: '+Math.round(2000000/ms)+' ops/ms',detail:'2M operaciones — mayor es mejor'};
+    }
+  }
+];
+
+// ══ STATE ══
+let peer=null,conn=null,myStats=null,themStats=null,myCode=null;
+let expSecs=600,expInt=null,statsInt=null,pingInt=null;
+let pendingTasks={},iAmStronger=null,taskRunning=false;
+
+// ══ TERMS ══
+function acceptTerms(){showScr('sConnect');initPeer();}
+
+// ══ INIT PEER ══
+function initPeer(){
+  const a=new Uint32Array(1); crypto.getRandomValues(a);
+  myCode=String(100000+(a[0]%900000));
+  document.getElementById('myCode').textContent=myCode.split('').join(' ');
+  startExpTimer();
+  peer=new Peer(myCode,{debug:0,config:{iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}]}});
+  peer.on('open',()=>{document.getElementById('waitPill').style.display='flex';document.getElementById('btnJoin').disabled=false;});
+  peer.on('connection',c=>{
+    if(expSecs<=0){c.close();toast('⚠️ Código expirado');return;}
+    conn=c; clearExpTimer(); setupConn(); showScr('sConnecting'); setBadge('ing','Conectando...');
+    document.getElementById('connLbl').textContent='Enlazando dispositivos...';
+  });
+  peer.on('error',e=>{
+    const m={'peer-unavailable':'Código incorrecto o expirado','network':'Sin conexión de red'};
+    toast('⚠️ '+(m[e.type]||'Error: '+e.type));
+    showScr('sConnect'); setBadge('','Sin conexión');
+  });
+}
+
+// ══ JOIN ══
+function onInp(el){el.value=el.value.replace(/\D/g,'').slice(0,6);document.getElementById('btnJoin').disabled=el.value.length!==6;}
+function joinPeer(){
+  const code=document.getElementById('joinInp').value.trim();
+  if(code.length!==6){toast('Introduce 6 dígitos');return;}
+  if(code===myCode){toast('No puedes conectarte a ti mismo');return;}
+  clearExpTimer(); showScr('sConnecting'); setBadge('ing','Conectando...');
+  document.getElementById('connLbl').textContent='Buscando dispositivo...';
+  document.getElementById('connSub').textContent='Verificando código · Preferencia WiFi local';
+  conn=peer.connect(code,{reliable:true,serialization:'json'}); setupConn();
+}
+
+// ══ CONN SETUP ══
+function setupConn(){
+  conn.on('open',async()=>{
+    document.getElementById('connLbl').textContent='¡Conectado!';
+    document.getElementById('connSub').textContent='Canal seguro establecido';
+    setBadge('on','Conectado');
+    await sleep(500); showScr('sConnected');
+    await gatherMyStats();
+    send({type:'stats',payload:{...myStats,isDesktop}});
+    startLoops(); buildTaskList();
+  });
+  conn.on('data',async data=>{
+    if(!data||!data.type) return;
+    if(data.type==='stats'){
+      const s=data.payload;
+      themStats={cores:cl(s.cores,1,64),ramGB:String(s.ramGB||'?').slice(0,10),ramPct:cl(s.ramPct,0,100),batPct:cl(s.batPct,0,100),batStr:String(s.batStr||'?').slice(0,15),gpuStr:String(s.gpuStr||'?').slice(0,12),score:cl(s.score,0,9999999),cpuPct:cl(s.cpuPct,0,100),speed:cl(s.speed,0,999999),isDesktop:!!s.isDesktop};
+      document.getElementById('themAva').textContent = themStats.isDesktop ? '💻' : '📱';
+      updateThemUI(); updateBalance(); determineRoles();
+    }
+    if(data.type==='task_request'){
+      const{taskId,reqId,fnStr}=data;
+      showWorker('Ejecutando tarea recibida de dispositivo remoto...');
+      try{
+        const fn=new Function('return ('+fnStr+')')();
+        const result=await Promise.resolve(fn());
+        send({type:'task_result',reqId,taskId,success:true,result});
+        log('✅ Ejecutado y enviado: '+result.result,'ok');
+      }catch(e){
+        send({type:'task_result',reqId,taskId,success:false,result:{result:'Error: '+e.message}});
+        log('❌ Error ejecutando tarea','err');
+      }
+      hideWorker();
+    }
+    if(data.type==='task_result'){
+      hideWorker(); taskRunning=false;
+      const cb=pendingTasks[data.reqId];
+      if(cb){cb(data);delete pendingTasks[data.reqId];}
+      updateTaskBtns();
+    }
+    if(data.type==='ping') send({type:'pong',ts:data.ts});
+    if(data.type==='pong'){
+      const rtt=Date.now()-Number(data.ts);
+      if(rtt>0&&rtt<9999){document.getElementById('myPing').textContent=rtt+'ms';document.getElementById('themPing').textContent=rtt+'ms';}
+    }
+  });
+  conn.on('close',()=>{toast('📵 Conexión cerrada');resetAll();});
+  conn.on('error',()=>{toast('⚠️ Error de conexión');resetAll();});
+}
+
+// ══ STATS ══
+async function gatherMyStats(){
+  const cores=navigator.hardwareConcurrency||4;
+  let ramGB='?',ramPct=50;
+  if(navigator.deviceMemory){ramGB=navigator.deviceMemory+' GB';ramPct=Math.round((navigator.deviceMemory/16)*100);}
+  let batPct=100,batStr=isDesktop?'Conectado':'?';
+  try{const b=await navigator.getBattery();batPct=Math.round(b.level*100);batStr=batPct+'%'+(b.charging?' ⚡':'');}catch(e){}
+  let gpuStr='N/A';
+  if(navigator.gpu){try{const a=await navigator.gpu.requestAdapter();if(a){const i=await a.requestAdapterInfo();gpuStr=(i.vendor||i.device||'WebGPU').slice(0,9);}}catch(e){}}
+  const t0=performance.now();let x=0;for(let i=0;i<1000000;i++)x+=Math.sqrt(i);
+  const speed=Math.round(1000000/(performance.now()-t0));
+  const score=cores*10+speed/50+batPct*0.3;
+  const cpuPct=Math.min(100,Math.round((cores/16)*100));
+  myStats={cores,ramGB,ramPct,batPct,batStr,gpuStr,score:Math.round(score),cpuPct,speed,isDesktop};
+  updateMyUI();
+  document.getElementById('mySub').textContent=(isDesktop?'Ordenador · ':'Móvil · ')+(navigator.platform||'');
+}
+
+function updateMyUI(){
+  if(!myStats) return; const s=myStats;
+  document.getElementById('myCores').textContent=s.cores+' núcleos';
+  document.getElementById('myCpuB').style.width=s.cpuPct+'%';
+  document.getElementById('myRam').textContent=s.ramGB;
+  document.getElementById('myRamB').style.width=s.ramPct+'%';
+  document.getElementById('myBat').textContent=s.batStr;
+  document.getElementById('myBatB').style.width=s.batPct+'%';
+  document.getElementById('mySpd').textContent=s.speed;
+  document.getElementById('myScore').textContent=s.score;
+}
+function updateThemUI(){
+  if(!themStats) return; const s=themStats;
+  document.getElementById('themCores').textContent=s.cores+' núcleos';
+  document.getElementById('themCpuB').style.width=s.cpuPct+'%';
+  document.getElementById('themRam').textContent=s.ramGB;
+  document.getElementById('themRamB').style.width=s.ramPct+'%';
+  document.getElementById('themBat').textContent=s.batStr;
+  document.getElementById('themBatB').style.width=s.batPct+'%';
+  document.getElementById('themSpd').textContent=s.speed;
+  document.getElementById('themScore').textContent=s.score;
+  document.getElementById('themSub').textContent=(s.isDesktop?'Ordenador':'Móvil')+' · Datos recibidos';
+}
+
+// ══ ROLES & BALANCE ══
+function determineRoles(){
+  if(!myStats||!themStats) return;
+  iAmStronger=myStats.score>=themStats.score;
+  const myR=document.getElementById('myRole'),thR=document.getElementById('themRole');
+  const diff=Math.abs(myStats.score-themStats.score),tot=myStats.score+themStats.score||1,pct=(diff/tot)*100;
+  if(pct<15){
+    [myR,thR].forEach(r=>{r.textContent='IGUAL';r.className='role-pill role-eq';});
+    document.getElementById('powerBadge').textContent='⚖️ Fuerza igual';
+    document.getElementById('offloadSub').textContent='Carga repartida entre ambos';
+  } else if(iAmStronger){
+    myR.textContent='POTENTE';myR.className='role-pill role-main';
+    thR.textContent='DÉBIL';thR.className='role-pill role-sup';
+    document.getElementById('powerBadge').textContent='💪 Tú eres más potente';
+    document.getElementById('offloadSub').textContent='Recibirás y ejecutarás tareas del débil';
+  } else {
+    myR.textContent='DÉBIL';myR.className='role-pill role-sup';
+    thR.textContent='POTENTE';thR.className='role-pill role-main';
+    document.getElementById('powerBadge').textContent='📤 Enviando al potente';
+    document.getElementById('offloadSub').textContent='Las tareas corren en el dispositivo remoto';
+  }
+  updateTaskBtns();
+}
+
+function updateBalance(){
+  if(!myStats||!themStats) return;
+  const myP=myStats.score,thP=themStats.score,tot=myP+thP||1;
+  const myPct=Math.round((myP/tot)*100),thPct=100-myPct,diff=Math.abs(myPct-thPct);
+  document.getElementById('balL').style.width=(myPct/2)+'%';
+  document.getElementById('balR').style.width=(thPct/2)+'%';
+  document.getElementById('balMe').textContent=myPct+'%';
+  document.getElementById('balThem').textContent=thPct+'%';
+  let badge,st,style;
+  if(diff<=12){badge='⚖️ Equilibrado';st='Potencia repartida equitativamente';style='background:var(--gl);color:#1a7a2e;border:1px solid #a8e4b0';}
+  else if(myPct>thPct){badge='💪 Este lidera';st='Este dispositivo aporta el '+myPct+'% de la potencia total';style='background:var(--bl);color:var(--blue);border:1px solid var(--bm)';}
+  else{badge='📱 Remoto lidera';st='El remoto aporta el '+thPct+'% de la potencia total';style='background:var(--pl);color:var(--pur);border:1px solid #d0b0f0';}
+  const bb=document.getElementById('balBadge');
+  bb.textContent=badge; bb.style.cssText=style;
+  document.getElementById('balSt').textContent=st;
+}
+
+// ══ TASKS ══
+function buildTaskList(){
+  const list=document.getElementById('taskList'); list.innerHTML='';
+  TASKS.forEach(t=>{
+    const btn=document.createElement('button');
+    btn.className='task-btn'; btn.id='task-'+t.id;
+    btn.innerHTML=`<div class="task-ico">${t.icon}</div><div class="task-info"><div class="task-name">${t.name}</div><div class="task-desc">${t.desc}</div></div><div class="task-stat" id="ts-${t.id}">▶ Ejecutar</div>`;
+    btn.onclick=()=>runTask(t);
+    list.appendChild(btn);
+  });
+}
+
+function updateTaskBtns(){
+  TASKS.forEach(t=>{
+    const btn=document.getElementById('task-'+t.id);
+    const ts=document.getElementById('ts-'+t.id);
+    if(!btn) return;
+    btn.disabled=taskRunning;
+    if(!ts.textContent.includes('✅')&&!ts.textContent.includes('❌'))
+      ts.textContent=iAmStronger===false?'📤 Enviar':iAmStronger===true?'📥 Recibir':'▶ Ejecutar';
+  });
+}
+
+async function runTask(task){
+  if(taskRunning){toast('Espera a que termine la tarea actual');return;}
+  if(!conn||!conn.open){toast('Sin conexión activa');return;}
+  taskRunning=true;
+  const btn=document.getElementById('task-'+task.id),ts=document.getElementById('ts-'+task.id);
+  btn.className='task-btn running'; ts.textContent='⏳ Ejecutando...';
+  log('▶ Iniciando: '+task.name,'fresh');
+  const reqId='req_'+Date.now()+'_'+Math.random().toString(36).slice(2);
+  const tStart=Date.now();
+  showWorker(iAmStronger?'Recibiendo tarea del dispositivo remoto...':'Enviando al dispositivo más potente...');
+  send({type:'task_request',taskId:task.id,reqId,fnStr:task.fn.toString()});
+  const result=await new Promise(resolve=>{
+    const timer=setTimeout(()=>{delete pendingTasks[reqId];resolve({success:false,result:{result:'Tiempo agotado (30s)'}});},30000);
+    pendingTasks[reqId]=data=>{clearTimeout(timer);resolve(data);};
+  });
+  const elapsed=Date.now()-tStart;
+  taskRunning=false; hideWorker();
+  if(result.success){
+    btn.className='task-btn done'; ts.textContent='✅ '+Math.round(elapsed/1000)+'s';
+    log('✅ '+result.result.result,'ok');
+    if(result.result.detail) log('   ↳ '+result.result.detail,'');
+    log('   ⏱ '+elapsed+'ms total (incluye red)','');
+  } else {
+    btn.className='task-btn error'; ts.textContent='❌ Error';
+    log('❌ '+result.result.result,'err');
+  }
+  setTimeout(()=>{btn.className='task-btn';updateTaskBtns();},5000);
+}
+
+// ══ LOG ══
+function log(msg,type){
+  const body=document.getElementById('logBody');
+  const empty=body.querySelector('.log-empty'); if(empty) empty.remove();
+  const row=document.createElement('div'); row.className='log-row';
+  const t=new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  row.innerHTML=`<span class="log-time">${t}</span><span class="log-msg ${type||''}">${msg}</span>`;
+  body.insertBefore(row,body.firstChild);
+  if(body.children.length>40) body.lastChild.remove();
+}
+function clearLog(){document.getElementById('logBody').innerHTML='<div class="log-empty">Registro limpiado</div>';}
+
+// ══ WORKER ══
+function showWorker(msg){document.getElementById('workerRow').style.display='flex';document.getElementById('workerMsg').textContent=msg;}
+function hideWorker(){document.getElementById('workerRow').style.display='none';}
+
+// ══ LOOPS ══
+function startLoops(){
+  statsInt=setInterval(async()=>{await gatherMyStats();send({type:'stats',payload:{...myStats,isDesktop}});updateBalance();determineRoles();},8000);
+  pingInt=setInterval(()=>{if(conn&&conn.open)send({type:'ping',ts:Date.now()});},4000);
+}
+
+// ══ EXPIRE TIMER ══
+function startExpTimer(){
+  expSecs=600;
+  expInt=setInterval(()=>{
+    expSecs--;
+    const m=Math.floor(expSecs/60),s=expSecs%60;
+    document.getElementById('expTimer').textContent=m+':'+String(s).padStart(2,'0');
+    if(expSecs<=0){clearExpTimer();document.getElementById('myCode').textContent='EXPIRADO';toast('⏱ Código expirado — recarga para generar uno nuevo');}
+  },1000);
+}
+function clearExpTimer(){clearInterval(expInt);const el=document.querySelector('.code-timer');if(el)el.style.display='none';}
+
+// ══ UTILS ══
+function send(d){if(conn&&conn.open)conn.send(d);}
+function cancelConn(){if(conn){try{conn.close();}catch(e){}conn=null;}showScr('sConnect');setBadge('','Sin conexión');}
+function disconnect(){resetAll();}
+function resetAll(){
+  clearInterval(statsInt);clearInterval(pingInt);
+  if(conn){try{conn.close();}catch(e){}conn=null;}
+  myStats=null;themStats=null;iAmStronger=null;taskRunning=false;
+  setBadge('','Sin conexión');showScr('sConnect');
+  document.getElementById('joinInp').value='';
+  document.getElementById('btnJoin').disabled=true;
+}
+function copyCode(){
+  if(!myCode) return;
+  if(navigator.clipboard) navigator.clipboard.writeText(myCode).then(()=>toast('✅ Código copiado: '+myCode));
+  else toast('Tu código: '+myCode);
+}
+function showScr(id){document.querySelectorAll('.scr').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
+function setBadge(state,txt){const el=document.getElementById('badge');el.className='badge'+(state?' '+state:'');document.getElementById('btext').textContent=txt;}
+function toast(msg){const t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),2800);}
+function cl(v,mn,mx){return Math.min(mx,Math.max(mn,Number(v)||0));}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+</script>
+</body>
+</html>

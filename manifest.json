@@ -1,0 +1,12 @@
+{
+  "background_color": "#ffffff",
+  "dir": "ltr",
+  "display": "standalone",
+  "name": "lopex-cpu.netlify",
+  "orientation": "any",
+  "scope": "/",
+  "short_name": "lopex-cpu.netlify",
+  "start_url": "start_url",
+  "theme_color": "#ffffff",
+  "lang": "la"
+}
